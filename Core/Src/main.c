@@ -35,6 +35,9 @@
 #define UART_TX_TIMEOUT			100
 #define RX_BUFF_SIZE			500
 #define AT_COMM_TX_BUFF_SIZE	25
+#define SWARM_ASCII_BUFF_SIZE	192
+#define SWARM_PW_BUFF_SIZE		6
+#define SWARM_GN_BUFF_SIZE		6
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,7 +51,6 @@ RTC_HandleTypeDef hrtc;
 TIM_HandleTypeDef htim14;
 
 UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
@@ -62,6 +64,7 @@ char                stm32_wakeup[]         	= "STM32 Wake Up\n" ;
 HAL_StatusTypeDef   uart_status ;
 uint8_t             rx_buff[RX_BUFF_SIZE] ;
 char				tx_buff[AT_COMM_TX_BUFF_SIZE] ;
+char				td_swarm_buff[SWARM_ASCII_BUFF_SIZE] ;
 
 // SWARM AT Commands
 const char 			cs_at_comm[]			= "$CS" ;
@@ -83,7 +86,7 @@ const char 			dt_mostrecent_at_comm[]	= "$DT @" ;
 const char 			mt_del_all_at_comm[]	= "$MT D=U" ;
 const char 			td_mzo_at_comm[]		= "$TD HD=300,\"MZO\"" ; // 5 minut na wysłanie wiadmości
 const char 			sl_3ks_at_comm[]		= "$SL S=3000" ; // 50 minut spania dla Swarm
-uint8_t				rt_unsolicited 			= 1 ;
+//uint8_t				rt_unsolicited 			= 1 ;
 
 // SWARM AT Answers
 const char          cs_answer[]				= "$CS DI=0x" ;
@@ -103,20 +106,20 @@ const char          gn_0_answer[]			= "$GN 0*19" ;
 const char          gn_mostrecent_answer[]	= "$GN " ;
 const char 			mt_del_all_answer[]		= "$MT " ; // nie wiadomo ile ich będzie dlatego nie mogę ustawić "$MT 0*09"
 const char 			td_ok_answer[]			= "$TD OK," ;
-const char          sl_ok_answer[]			= "$SL OK*3b" ;/* USER CODE END PV */
+const char          sl_ok_answer[]			= "$SL OK*3b" ;
+/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_USART2_UART_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM14_Init(void);
 /* USER CODE BEGIN PFP */
 void	send2swarm_at_command		( const char* at_command , const char* answer , uint16_t step ) ;
-void	send2swarm_rt_0 			() ;
-void	send2swarm_rt_query_rate 	() ;
+void 	pw2payload () ; // parse answer with PW data and add to td_swarm_buff
+void 	gn2payload () ; // parse answer with GN data and add to td_swarm_buff
 uint8_t check_answer				( const char* s ) ;
 uint8_t nmea_checksum				( const char *sz , size_t len ) ;
 /* USER CODE END PFP */
@@ -155,13 +158,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_USART2_UART_Init();
   MX_USART1_UART_Init();
   MX_RTC_Init();
   MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
-  uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) hello , strlen ( hello ) , UART_TX_TIMEOUT ) ;
+  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) hello , strlen ( hello ) , UART_TX_TIMEOUT ) ;
   HAL_Delay ( 15000 ) ; // Wait for Swarm boot
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
   /* USER CODE END 2 */
@@ -176,11 +178,14 @@ int main(void)
 	  if ( checklist == 2 )
 	  	  send2swarm_at_command ( rt_q_rate_at_comm , rt_0_answer , 3 ) ; // Query RT rate
 	  if ( checklist == 3 )
-	  	send2swarm_at_command ( pw_0_at_comm , pw_ok_answer , 4 ) ;
+		  send2swarm_at_command ( pw_0_at_comm , pw_ok_answer , 4 ) ;
 	  if ( checklist == 4 )
 	  	  send2swarm_at_command ( pw_q_rate_at_comm , pw_0_answer , 5 ) ;
 	  if ( checklist == 5 )
+	  {
 	  	  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 6 ) ;
+	  	  pw2payload () ;
+	  }
 	  if ( checklist == 6 )
 		  send2swarm_at_command ( dt_0_at_comm , dt_ok_answer , 7 ) ;
 	  if ( checklist == 7 )
@@ -198,19 +203,23 @@ int main(void)
 	  if ( checklist == 13 )
 		  send2swarm_at_command ( gn_q_rate_at_comm , gn_0_answer , 14 ) ;
 	  if ( checklist == 14 )
+	  {
 		  send2swarm_at_command ( gn_mostrecent_at_comm , gn_mostrecent_answer , 15 ) ;
+		  gn2payload () ;
+	  }
 	  if ( checklist == 15 )
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
 	  if ( checklist == 16 )
 	  	  send2swarm_at_command ( td_mzo_at_comm , td_ok_answer , 17 ) ;
 	  if ( checklist == 17 )
-	  	  uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) good , strlen ( good ) , UART_TX_TIMEOUT ) ;
+		  __NOP () ;
+	  	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) good , strlen ( good ) , UART_TX_TIMEOUT ) ;
 	  HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
 	  send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
-	  uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) stm32_shutdown , strlen ( stm32_shutdown ) , UART_TX_TIMEOUT ) ;
+	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) stm32_shutdown , strlen ( stm32_shutdown ) , UART_TX_TIMEOUT ) ;
 	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
-	  uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) stm32_wakeup , strlen ( stm32_wakeup ) , UART_TX_TIMEOUT ) ;
-	  checklist = 0 ;    /* USER CODE END WHILE */
+	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) stm32_wakeup , strlen ( stm32_wakeup ) , UART_TX_TIMEOUT ) ;
+    /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
@@ -416,42 +425,6 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -484,11 +457,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GREEN_GPIO_Port, GREEN_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : T_NRST_Pin */
-  GPIO_InitStruct.Pin = T_NRST_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pin : BUTTON_Pin */
+  GPIO_InitStruct.Pin = BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(T_NRST_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : GREEN_Pin */
   GPIO_InitStruct.Pin = GREEN_Pin;
@@ -497,11 +470,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GREEN_GPIO_Port, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI2_3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
+
 }
 
 /* USER CODE BEGIN 4 */
 void HAL_UARTEx_RxEventCallback ( UART_HandleTypeDef *huart , uint16_t Size )
 {
+	/*
     if ( huart->Instance == USART1 )
     {
     	if ( rx_buff[0] != 0 )
@@ -519,48 +497,8 @@ void HAL_UARTEx_RxEventCallback ( UART_HandleTypeDef *huart , uint16_t Size )
     		//rx_buff[0] = 0 ;
     	}
     }
+    */
     HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
-}
-void send2swarm_rt_query_rate ()
-{
-	const char rt_q_rate_at_comm[] = "$RT ?" ;
-	uint8_t cs = nmea_checksum ( rt_q_rate_at_comm , strlen ( rt_q_rate_at_comm ) ) ;
-	char uart_tx_buff[10] ;
-
-	sprintf ( (char*) uart_tx_buff , "%s*%02x\n" , rt_q_rate_at_comm , cs ) ;
-	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_tx_buff ) , UART_TX_TIMEOUT ) ;
-	waiting_for_answer = 1 ;
-	HAL_TIM_Base_Start_IT ( &htim14 ) ;
-		while ( waiting_for_answer )
-		{
-			if ( check_answer ( rt_0_answer ) )
-			{
-				checklist = 2 ;
-				break ;
-			}
-		}
-}
-void send2swarm_rt_0 ()
-{
-	const char rt_0_at_comm[] = "$RT 0" ;
-	uint8_t cs = nmea_checksum ( rt_0_at_comm , strlen ( rt_0_at_comm ) ) ;
-	char uart_tx_buff[10] ;
-
-	sprintf ( (char*) uart_tx_buff , "%s*%02x\n" , rt_0_at_comm , cs ) ;
-	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_tx_buff ) , UART_TX_TIMEOUT ) ;
-	waiting_for_answer = 1 ;
-	HAL_TIM_Base_Start_IT ( &htim14 ) ;
-	while ( waiting_for_answer )
-	{
-		/*
-		 * Sprawdzić uważnie, bo przy "rt_ok_answer" poniższa funkcja wszystko puszczała
-		 */
-		if ( check_answer ( rt_ok_answer ) )
-		{
-			checklist = 1 ;
-			break ;
-		}
-	}
 }
 void send2swarm_at_command ( const char* at_command , const char* answer , uint16_t step )
 {
@@ -590,6 +528,14 @@ uint8_t check_answer ( const char* answer )
 	else
 		return 0 ;
 }
+void pw2payload ()
+{
+	__NOP () ;
+}
+void gn2payload ()
+{
+	__NOP () ;
+}
 uint8_t nmea_checksum ( const char *sz , size_t len )
 {
 	size_t i = 0 ;
@@ -606,9 +552,11 @@ void HAL_TIM_PeriodElapsedCallback ( TIM_HandleTypeDef *htim )
 	{
 		waiting_for_answer = 0 ;
 		HAL_TIM_Base_Stop_IT ( &htim14 ) ;
-		//NVIC_SystemReset () ; // Może kiedyś przyda się restartowanie aplikacji przy problemach z hardware
-		__NOP () ;
 	}
+}
+void HAL_GPIO_EXTI_Falling_Callback ( uint16_t GPIO_Pin )
+{
+	NVIC_SystemReset () ;
 }
 /* USER CODE END 4 */
 
