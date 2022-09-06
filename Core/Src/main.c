@@ -35,9 +35,9 @@
 #define UART_TX_TIMEOUT			100
 #define RX_BUFF_SIZE			500
 #define AT_COMM_TX_BUFF_SIZE	25
-#define SWARM_ASCII_BUFF_SIZE	192
-#define SWARM_PW_BUFF_SIZE		6
-#define SWARM_GN_BUFF_SIZE		6
+#define PW_BUFF_SIZE			6
+#define GN_BUFF_SIZE			50
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -64,7 +64,8 @@ char                stm32_wakeup[]         	= "STM32 Wake Up\n" ;
 HAL_StatusTypeDef   uart_status ;
 uint8_t             rx_buff[RX_BUFF_SIZE] ;
 char				tx_buff[AT_COMM_TX_BUFF_SIZE] ;
-char				td_swarm_buff[SWARM_ASCII_BUFF_SIZE] ;
+char				pw_buff[PW_BUFF_SIZE] ;
+char				gn_buff[GN_BUFF_SIZE] ;
 
 // SWARM AT Commands
 const char 			cs_at_comm[]			= "$CS" ;
@@ -118,8 +119,8 @@ static void MX_RTC_Init(void);
 static void MX_TIM14_Init(void);
 /* USER CODE BEGIN PFP */
 void	send2swarm_at_command		( const char* at_command , const char* answer , uint16_t step ) ;
-void 	pw2payload () ; // parse answer with PW data and add to td_swarm_buff
-void 	gn2payload () ; // parse answer with GN data and add to td_swarm_buff
+void 	pw2payload () ; // parse answer with PW data and add to swarm_buff
+void 	gn2payload () ; // parse answer with GN data and add to swarm_buff
 uint8_t check_answer				( const char* s ) ;
 uint8_t nmea_checksum				( const char *sz , size_t len ) ;
 /* USER CODE END PFP */
@@ -210,7 +211,10 @@ int main(void)
 	  if ( checklist == 15 )
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
 	  if ( checklist == 16 )
-	  	  send2swarm_at_command ( td_mzo_at_comm , td_ok_answer , 17 ) ;
+	  {
+		  strcat ( pw_buff , gn_buff ) ;
+	  	  send2swarm_at_command ( pw_buff , td_ok_answer , 17 ) ;
+	  }
 	  if ( checklist == 17 )
 		  __NOP () ;
 	  	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) good , strlen ( good ) , UART_TX_TIMEOUT ) ;
@@ -530,11 +534,49 @@ uint8_t check_answer ( const char* answer )
 }
 void pw2payload ()
 {
-	__NOP () ;
+	if ( strncmp ( (const char *) rx_buff  , pw_mostrecent_answer , 4 ) == 0 )
+	{
+		if ( strlen ( (char *) rx_buff ) > 12 ) // 12 to odpowiednik $PW 3.30300
+		{
+			uint8_t i ;
+			for ( i = 4 ; i < 8 ; i++ ) // 8 to odpowiednik $PW 3.31
+			{
+				if ( rx_buff[i] == 46 || ( rx_buff[i] >= 48 && rx_buff[i] <= 57 ) )
+					pw_buff[i-4] = rx_buff[i] ;
+				else if ( rx_buff[i] == 42 )
+					break ;
+				else
+				{
+					pw_buff[0] = 0 ;
+					break ;
+				}
+			}
+			pw_buff[4] = 59 ; // ";"
+			pw_buff[5] = 0 ; // ";"
+		}
+	}
 }
 void gn2payload ()
 {
-	__NOP () ;
+	if ( strncmp ( (const char *) rx_buff  , gn_mostrecent_answer , 4 ) == 0 )
+	{
+		uint8_t i = 4 ;
+		while ( rx_buff[i] != 42 )
+		{
+			if ( rx_buff[i] == 44 || rx_buff[i] == 46 || ( rx_buff[i] >= 48 && rx_buff[i] <= 57 ) )
+			{
+				tx_buff[i-4] = rx_buff[i] ;
+				i++ ;
+			}
+			else
+			{
+				i++;
+				break ;
+			}
+		}
+		tx_buff[i-4] = 59 ;
+		tx_buff[i-4+1] = 0 ;
+	}
 }
 uint8_t nmea_checksum ( const char *sz , size_t len )
 {
