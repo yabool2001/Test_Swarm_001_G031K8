@@ -1,5 +1,16 @@
 /* USER CODE BEGIN Header */
 /**
+ *
+ *
+ *
+ * PRZETESTOWAĆ:
+	  	  pw2payload () ;
+		  gn2payload () ;
+		  strcat ( pw_buff , gn_buff ) ;
+	  	  send2swarm_at_command ( pw_buff , td_ok_answer , 17 ) ;
+
+
+
   ******************************************************************************
   * @file           : main.c
   * @brief          : Main program body
