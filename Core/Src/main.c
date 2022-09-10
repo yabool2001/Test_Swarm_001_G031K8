@@ -68,6 +68,9 @@ DMA_HandleTypeDef hdma_usart1_rx;
 uint16_t			checklist				= 0 ; //docelowo każdy bit będzie odpowiedzialny za kolejny krok aplikacji
 uint8_t				waiting_for_answer		= 0 ;
 
+uint8_t temp = 0 ;
+uint32_t temp_tick ;
+
 char                hello[]         		= "Hello! Test_Swarm_001_G071RB\n" ;
 char                good[]         			= "So far, so good !\n" ;
 char                stm32_shutdown[]        = "STM32_Shutdown\n" ;
@@ -177,7 +180,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
   //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) hello , strlen ( hello ) , UART_TX_TIMEOUT ) ;
-  HAL_Delay ( 15000 ) ; // Wait for Swarm boot
+  HAL_Delay ( 10000 ) ; // Wait for Swarm boot // docelowo 120000
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
 
   send2swarm_at_command ( cs_at_comm , cs_answer , 1 ) ;
@@ -211,36 +214,32 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if ( checklist == 14 )
-	  {
+	  if ( checklist == 13 )
 	  	  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 14 ) ;
-	  	  pw2payload () ;
-	  }
-	  if ( checklist == 15 )
-	  {
+	  HAL_Delay ( 1000 ) ;
+	  if ( checklist == 14 )
 		  send2swarm_at_command ( gn_mostrecent_at_comm , gn_mostrecent_answer , 15 ) ;
-		  gn2payload () ;
-	  }
+	  HAL_Delay ( 1000 ) ;
 	  if ( checklist == 15 )
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
 	  if ( checklist == 16 )
 	  {
 		  strcat ( pw_buff , gn_buff ) ;
-	  	  send2swarm_at_command ( pw_buff , td_ok_answer , 17 ) ;
+		  sprintf ( (char*) gn_buff , "$TD HD=300,\"%s\"" , pw_buff ) ;
+	  	  send2swarm_at_command ( gn_buff , td_ok_answer , 17 ) ;
 	  	  pw_buff[0] = 0 ;
 	  	  gn_buff[0] = 0 ;
 	  }
 	  if ( checklist == 17 )
 	  {
-		  HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
-		  send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
+		  //HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
+		  //send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 13 ) ; // Swarm sleep for 50 minutes
 	  }
 	  else
-		  send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
-  	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) good , strlen ( good ) , UART_TX_TIMEOUT ) ;
-	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) stm32_shutdown , strlen ( stm32_shutdown ) , UART_TX_TIMEOUT ) ;
-	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
-	  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) stm32_wakeup , strlen ( stm32_wakeup ) , UART_TX_TIMEOUT ) ;
+		  //send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 13 ) ; // Swarm sleep for 50 minutes
+	  checklist = 13 ;
+	  HAL_Delay(3000); // docelowo zamienić na poniższy sleep
+	  //HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -473,17 +472,10 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GREEN_GPIO_Port, GREEN_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : BUTTON_Pin */
-  GPIO_InitStruct.Pin = BUTTON_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : GREEN_Pin */
   GPIO_InitStruct.Pin = GREEN_Pin;
@@ -492,38 +484,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GREEN_GPIO_Port, &GPIO_InitStruct);
 
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI2_3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_3_IRQn);
-
 }
 
 /* USER CODE BEGIN 4 */
 void HAL_UARTEx_RxEventCallback ( UART_HandleTypeDef *huart , uint16_t Size )
 {
-	/*
     if ( huart->Instance == USART1 )
-    {
-    	if ( rx_buff[0] != 0 )
-    	{
-    		// Jeśli dostałem potwierdzenie $RT = 0, to ustawiam odpowiednią zmienną
-    		if ( strncmp ( (char*) rx_buff , rt_0_answer , strlen ( rt_0_answer ) ) == 0 )
-    		{
-    			rt_unsolicited = 0 ;
-    			__NOP () ;
-    		}
-    		if ( strncmp ( (char*) rx_buff , rt_ok_answer , strlen ( rt_ok_answer ) ) == 0 )
-    		{
-    			__NOP () ;
-    		}
-    		//rx_buff[0] = 0 ;
-    	}
-    }
-    */
-    HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
+    	HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
 }
+
 void send2swarm_at_command ( const char* at_command , const char* answer , uint16_t step )
 {
+	uint32_t temp_tickstart = HAL_GetTick () ; //temp
 	uint8_t cs = nmea_checksum ( at_command , strlen ( at_command ) ) ;
 	char uart_tx_buff[250] ;
 
@@ -533,67 +505,37 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint1
 	HAL_TIM_Base_Start_IT ( &htim14 ) ;
 	while ( waiting_for_answer )
 	{
-		if ( check_answer ( answer ) )
+		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
 		{
 			checklist = step ;
 			break ;
 		}
 	}
-}
-uint8_t check_answer ( const char* answer )
-{
-	if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
-	{
-		rx_buff[0] = 0 ;
-		return 1 ;
-	}
-	else
-		return 0 ;
+	if ( checklist == 14 )
+		pw2payload () ;
+	if ( checklist == 15 )
+		gn2payload () ;
+	rx_buff[0] = 0 ;
+	temp_tick = HAL_GetTick () - temp_tickstart ;
 }
 void pw2payload ()
 {
-	if ( strncmp ( (const char *) rx_buff  , pw_mostrecent_answer , 4 ) == 0 )
+	char comm[6] ;
+	if ( strlen ( (char *) rx_buff ) > 12 ) // 12 to odpowiednik $PW 3.30300
 	{
-		if ( strlen ( (char *) rx_buff ) > 12 ) // 12 to odpowiednik $PW 3.30300
-		{
-			uint8_t i ;
-			for ( i = 4 ; i < 8 ; i++ ) // 8 to odpowiednik $PW 3.31
-			{
-				if ( rx_buff[i] == 46 || ( rx_buff[i] >= 48 && rx_buff[i] <= 57 ) )
-					pw_buff[i-4] = rx_buff[i] ;
-				else if ( rx_buff[i] == 42 )
-					break ;
-				else
-				{
-					pw_buff[0] = 0 ;
-					break ;
-				}
-			}
-			pw_buff[4] = 59 ; // ";"
-			pw_buff[5] = 0 ; // ";"
-		}
+		sscanf ( (const char *) rx_buff , "%[$A-Z] %4[0-9.]," , comm , pw_buff ) ;
+		pw_buff[4] = 59 ; // ";"
+		pw_buff[5] = 0 ; // ";"
 	}
 }
 void gn2payload ()
 {
-	if ( strncmp ( (const char *) rx_buff  , gn_mostrecent_answer , 4 ) == 0 )
+	char e[2] = ";" ;
+	char comm[6] ;
+	if ( strlen ( (char *) rx_buff ) > 12 )
 	{
-		uint8_t i = 4 ;
-		while ( rx_buff[i] != 42 )
-		{
-			if ( rx_buff[i] == 44 || rx_buff[i] == 46 || ( rx_buff[i] >= 48 && rx_buff[i] <= 57 ) )
-			{
-				tx_buff[i-4] = rx_buff[i] ;
-				i++ ;
-			}
-			else
-			{
-				i++;
-				break ;
-			}
-		}
-		tx_buff[i-4] = 59 ;
-		tx_buff[i-4+1] = 0 ;
+		sscanf ( (const char *) rx_buff , "%[$A-Z] %[0-9.,]*" , comm , gn_buff ) ;
+		strcat ( gn_buff , e ) ;
 	}
 }
 uint8_t nmea_checksum ( const char *sz , size_t len )
@@ -614,10 +556,7 @@ void HAL_TIM_PeriodElapsedCallback ( TIM_HandleTypeDef *htim )
 		HAL_TIM_Base_Stop_IT ( &htim14 ) ;
 	}
 }
-void HAL_GPIO_EXTI_Falling_Callback ( uint16_t GPIO_Pin )
-{
-	NVIC_SystemReset () ;
-}
+
 /* USER CODE END 4 */
 
 /**
