@@ -45,9 +45,9 @@ Z
 /* USER CODE BEGIN PD */
 #define UART_TX_TIMEOUT			100
 #define RX_BUFF_SIZE			500
-#define AT_COMM_TX_BUFF_SIZE	25
-#define PW_BUFF_SIZE			50
-#define GN_BUFF_SIZE			50
+#define PW_BUFF_SIZE			6
+#define GN_BUFF_SIZE			30
+#define TD_PAYLOAD_BUFF_SIZE	40
 
 /* USER CODE END PD */
 
@@ -68,18 +68,14 @@ DMA_HandleTypeDef hdma_usart1_rx;
 uint16_t			checklist				= 0 ; //docelowo każdy bit będzie odpowiedzialny za kolejny krok aplikacji
 uint8_t				waiting_for_answer		= 0 ;
 
-uint8_t temp = 0 ;
 uint32_t temp_tick ;
 
-char                hello[]         		= "Hello! Test_Swarm_001_G071RB\n" ;
-char                good[]         			= "So far, so good !\n" ;
-char                stm32_shutdown[]        = "STM32_Shutdown\n" ;
-char                stm32_wakeup[]         	= "STM32 Wake Up\n" ;
 HAL_StatusTypeDef   uart_status ;
 uint8_t             rx_buff[RX_BUFF_SIZE] ;
-char				tx_buff[AT_COMM_TX_BUFF_SIZE] ;
 char				pw_buff[PW_BUFF_SIZE] ;
 char				gn_buff[GN_BUFF_SIZE] ;
+char				td_payload_buff[TD_PAYLOAD_BUFF_SIZE] ;
+char*				buff ;
 
 // SWARM AT Commands
 const char 			cs_at_comm[]			= "$CS" ;
@@ -99,7 +95,8 @@ const char			gn_q_rate_at_comm[]		= "$GN ?" ;
 const char 			gn_mostrecent_at_comm[]	= "$GN @" ;
 const char 			dt_mostrecent_at_comm[]	= "$DT @" ;
 const char 			mt_del_all_at_comm[]	= "$MT D=U" ;
-const char 			td_mzo_at_comm[]		= "$TD HD=300,\"MZO\"" ; // 5 minut na wysłanie wiadmości
+//const char 			td_mzo_at_comm[]		= "$TD HD=300,\"MZO\"" ; // to ładnie działało i przeszło przez satelitę
+char 				td_at_comm[100] ;
 const char 			sl_3ks_at_comm[]		= "$SL S=3000" ; // 50 minut spania dla Swarm
 const char 			sl_3c5ks_at_comm[]		= "$SL S=3500" ; // 50 minut spania dla Swarm
 //uint8_t				rt_unsolicited 			= 1 ;
@@ -179,7 +176,6 @@ int main(void)
   MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
-  //uart_status = HAL_UART_Transmit ( &huart2 , (const uint8_t *) hello , strlen ( hello ) , UART_TX_TIMEOUT ) ;
   HAL_Delay ( 10000 ) ; // Wait for Swarm boot // docelowo 120000
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
 
@@ -216,27 +212,31 @@ int main(void)
   {
 	  if ( checklist == 13 )
 	  	  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 14 ) ;
-	  HAL_Delay ( 1000 ) ;
 	  if ( checklist == 14 )
 		  send2swarm_at_command ( gn_mostrecent_at_comm , gn_mostrecent_answer , 15 ) ;
-	  HAL_Delay ( 1000 ) ;
 	  if ( checklist == 15 )
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
 	  if ( checklist == 16 )
 	  {
-		  strcat ( pw_buff , gn_buff ) ;
-		  sprintf ( (char*) gn_buff , "$TD HD=300,\"%s\"" , pw_buff ) ;
-	  	  send2swarm_at_command ( gn_buff , td_ok_answer , 17 ) ;
+		  td_payload_buff[0] = 0 ;
+		  strcat ( td_payload_buff , pw_buff ) ;
+		  strcat ( td_payload_buff , gn_buff ) ;
+		  sprintf ( td_at_comm , "$TD HD=300,\"%s\"" , td_payload_buff ) ;
+	  	  send2swarm_at_command ( td_at_comm , td_ok_answer , 17 ) ;
 	  	  pw_buff[0] = 0 ;
 	  	  gn_buff[0] = 0 ;
 	  }
 	  if ( checklist == 17 )
 	  {
+		  __NOP ();
 		  //HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
 		  //send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 13 ) ; // Swarm sleep for 50 minutes
 	  }
 	  else
+	  {
+		  __NOP () ;
 		  //send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 13 ) ; // Swarm sleep for 50 minutes
+	  }
 	  checklist = 13 ;
 	  HAL_Delay(3000); // docelowo zamienić na poniższy sleep
 	  //HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
@@ -497,7 +497,7 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint1
 {
 	uint32_t temp_tickstart = HAL_GetTick () ; //temp
 	uint8_t cs = nmea_checksum ( at_command , strlen ( at_command ) ) ;
-	char uart_tx_buff[250] ;
+	char uart_tx_buff[150] ;
 
 	sprintf ( (char*) uart_tx_buff , "%s*%02x\n" , at_command , cs ) ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_tx_buff ) , UART_TX_TIMEOUT ) ;
@@ -532,11 +532,34 @@ void gn2payload ()
 {
 	char e[2] = ";" ;
 	char comm[6] ;
-	if ( strlen ( (char *) rx_buff ) > 12 )
-	{
-		sscanf ( (const char *) rx_buff , "%[$A-Z] %[0-9.,]*" , comm , gn_buff ) ;
-		strcat ( gn_buff , e ) ;
-	}
+
+	if ( strncmp ( (const char *) rx_buff  , gn_mostrecent_answer , 4 ) == 0 )
+		if ( strlen ( (char *) rx_buff ) > 12 )
+		{
+			//sscanf ( (const char *) rx_buff , "%[$A-Z] %[0-9,.]*" , comm , gn_buff ) ;
+			sscanf ( (const char *) rx_buff , "%[$A-Z] %[0-9.,]*" , comm , gn_buff ) ;
+			strcat ( gn_buff , e ) ;
+		}
+	gn_buff[0] = 0 ;
+/*
+	uint8_t i = 4 ;
+	if ( strncmp ( (const char *) rx_buff  , gn_mostrecent_answer , 4 ) == 0 )
+		while ( rx_buff[i] != 42 )
+		{
+			if ( rx_buff[i] == 44 || rx_buff[i] == 46 || ( rx_buff[i] >= 48 && rx_buff[i] <= 57 ) )
+			{
+				gn_buff[i-4] = rx_buff[i] ;
+				i++ ;
+			}
+			else
+			{
+				i++;
+				break ;
+			}
+		}
+	gn_buff[i-4] = 59 ;
+	gn_buff[i-4+1] = 0 ;
+*/
 }
 uint8_t nmea_checksum ( const char *sz , size_t len )
 {
