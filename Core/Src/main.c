@@ -179,7 +179,7 @@ int main(void)
   MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
-  //HAL_Delay ( 10000 ) ; // Docelowo zostawić 12000s Wait for Swarm boot
+  //HAL_Delay ( 600000 ) ; // Nie potrzeba, bo tlyko by opozniało wszystko po shutdown
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
 
   send2swarm_at_command ( cs_at_comm , cs_answer , 1 ) ;
@@ -215,18 +215,12 @@ int main(void)
   {
 	  if ( checklist == 13 )
 	  	  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 14 ) ;
-	  HAL_Delay ( 100 ) ;
 	  if ( checklist == 14 )
 		  send2swarm_at_command ( gn_mostrecent_at_comm , gn_mostrecent_answer , 15 ) ;
-	  HAL_Delay ( 100 ) ;
 	  if ( checklist == 15 )
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
-	  HAL_Delay ( 100 ) ;
 	  if ( checklist == 16 )
 	  {
-		  //td_payload_buff[0] = 0 ;
-		  //strcat ( td_payload_buff , pw_buff ) ;
-		  //strcat ( td_payload_buff , gn_buff ) ;
 		  snprintf ( td_at_comm , TD_PAYLOAD_BUFF_SIZE , "$TD HD=300,\"%s;%s\"" , pw_buff , gn_buff ) ;
 	  	  send2swarm_at_command ( td_at_comm , td_ok_answer , 17 ) ;
 	  	  pw_buff[0] = 0 ;
@@ -234,18 +228,18 @@ int main(void)
 	  }
 	  if ( checklist == 17 )
 	  {
-		  __NOP ();
-		  //HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
-		  //send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 13 ) ; // Swarm sleep for 50 minutes
+		  //__NOP ();
+		  HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
+		  send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
 	  }
 	  else
 	  {
-		  __NOP () ;
-		  //send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 13 ) ; // Swarm sleep for 50 minutes
+		  //__NOP () ;
+		  send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
 	  }
 	  checklist = 13 ;
-	  HAL_Delay(3000); // docelowo zamienić na poniższy sleep
-	  //HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
+	  //HAL_Delay(3000); // docelowo zamienić na poniższy sleep
+	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -506,7 +500,8 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint1
 
 	sprintf ( (char*) tx_buff , "%s*%02x\n" , at_command , cs ) ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
-	HAL_Delay ( 250 ) ;
+	if ( checklist >= 13 )
+		HAL_Delay ( 500 ) ;
 	waiting_for_answer = 1 ;
 	HAL_TIM_Base_Start_IT ( &htim14 ) ;
 	while ( waiting_for_answer )
