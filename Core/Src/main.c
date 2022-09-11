@@ -32,6 +32,7 @@ Z
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -43,11 +44,13 @@ Z
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define UART_TX_TIMEOUT			100
-#define RX_BUFF_SIZE			500
-#define PW_BUFF_SIZE			6
-#define GN_BUFF_SIZE			30
-#define TD_PAYLOAD_BUFF_SIZE	40
+#define UART_TX_TIMEOUT			500
+#define RX_BUFF_SIZE			200
+#define TX_BUFF_SIZE			250
+#define PW_BUFF_SIZE			5
+#define GN_BUFF_SIZE			35
+#define TD_PAYLOAD_BUFF_SIZE	90
+#define AT_SWARM_BUFF_SIZE		100
 
 /* USER CODE END PD */
 
@@ -72,54 +75,54 @@ uint32_t temp_tick ;
 
 HAL_StatusTypeDef   uart_status ;
 uint8_t             rx_buff[RX_BUFF_SIZE] ;
+uint8_t             tx_buff[TX_BUFF_SIZE] ;
 char				pw_buff[PW_BUFF_SIZE] ;
 char				gn_buff[GN_BUFF_SIZE] ;
-char				td_payload_buff[TD_PAYLOAD_BUFF_SIZE] ;
-char*				buff ;
+char 				td_at_comm[TD_PAYLOAD_BUFF_SIZE] ;
+char* 				chunk ;
 
 // SWARM AT Commands
-const char 			cs_at_comm[]			= "$CS" ;
-const char 			rt_0_at_comm[]			= "$RT 0" ;
-const char			rt_q_rate_at_comm[]		= "$RT ?" ;
-const char 			pw_0_at_comm[]			= "$PW 0" ;
-const char			pw_q_rate_at_comm[]		= "$PW ?" ;
-const char 			pw_mostrecent_at_comm[]	= "$PW @" ;
-const char 			dt_0_at_comm[]			= "$DT 0" ;
-const char			dt_q_rate_at_comm[]		= "$DT ?" ;
-const char 			gs_0_at_comm[]			= "$GS 0" ;
-const char			gs_q_rate_at_comm[]		= "$GS ?" ;
-const char 			gj_0_at_comm[]			= "$GJ 0" ;
-const char			gj_q_rate_at_comm[]		= "$GJ ?" ;
-const char 			gn_0_at_comm[]			= "$GN 0" ;
-const char			gn_q_rate_at_comm[]		= "$GN ?" ;
-const char 			gn_mostrecent_at_comm[]	= "$GN @" ;
-const char 			dt_mostrecent_at_comm[]	= "$DT @" ;
-const char 			mt_del_all_at_comm[]	= "$MT D=U" ;
+const char*			cs_at_comm				= "$CS\0" ;
+const char*			rt_0_at_comm			= "$RT 0\0" ;
+const char*			rt_q_rate_at_comm		= "$RT ?\0" ;
+const char*			pw_0_at_comm			= "$PW 0\0" ;
+const char*			pw_q_rate_at_comm		= "$PW ?\0" ;
+const char*			pw_mostrecent_at_comm	= "$PW @\0" ;
+const char*			dt_0_at_comm			= "$DT 0\0" ;
+const char*			dt_q_rate_at_comm		= "$DT ?\0" ;
+const char*			gs_0_at_comm			= "$GS 0\0" ;
+const char*			gs_q_rate_at_comm		= "$GS ?\0" ;
+const char*			gj_0_at_comm			= "$GJ 0\0" ;
+const char*			gj_q_rate_at_comm		= "$GJ ?\0" ;
+const char*			gn_0_at_comm			= "$GN 0\0" ;
+const char*			gn_q_rate_at_comm		= "$GN ?\0" ;
+const char*			gn_mostrecent_at_comm	= "$GN @\0" ;
+const char*			dt_mostrecent_at_comm	= "$DT @\0" ;
+const char*			mt_del_all_at_comm		= "$MT D=U\0" ;
 //const char 			td_mzo_at_comm[]		= "$TD HD=300,\"MZO\"" ; // to ładnie działało i przeszło przez satelitę
-char 				td_at_comm[100] ;
-const char 			sl_3ks_at_comm[]		= "$SL S=3000" ; // 50 minut spania dla Swarm
-const char 			sl_3c5ks_at_comm[]		= "$SL S=3500" ; // 50 minut spania dla Swarm
+const char*			sl_3ks_at_comm			= "$SL S=3000\0" ; // 50 minut spania dla Swarm
+const char*			sl_3c5ks_at_comm		= "$SL S=3500\0" ; // 50 minut spania dla Swarm
 //uint8_t				rt_unsolicited 			= 1 ;
 
 // SWARM AT Answers
-const char          cs_answer[]				= "$CS DI=0x" ;
-const char          rt_ok_answer[]			= "$RT OK*22" ;
-const char          rt_0_answer[]			= "$RT 0*16" ;
-const char          pw_ok_answer[]			= "$PW OK*23" ;
-const char          pw_0_answer[]			= "$PW 0*17" ;
-const char          pw_mostrecent_answer[]	= "$PW " ;
-const char          dt_ok_answer[]			= "$DT OK*34" ;
-const char          dt_0_answer[]			= "$DT 0*00" ;
-const char          gs_ok_answer[]			= "$GS OK*30" ;
-const char          gs_0_answer[]			= "$GS 0*04" ;
-const char          gj_ok_answer[]			= "$GJ OK*29" ;
-const char          gj_0_answer[]			= "$GJ 0*1d" ;
-const char          gn_ok_answer[]			= "$GN OK*2d" ;
-const char          gn_0_answer[]			= "$GN 0*19" ;
-const char          gn_mostrecent_answer[]	= "$GN " ;
-const char 			mt_del_all_answer[]		= "$MT " ; // nie wiadomo ile ich będzie dlatego nie mogę ustawić "$MT 0*09"
-const char 			td_ok_answer[]			= "$TD OK," ;
-const char          sl_ok_answer[]			= "$SL OK*3b" ;
+const char*         cs_answer				= "$CS DI=0x\0" ;
+const char*         rt_ok_answer			= "$RT OK*22\0" ;
+const char*         rt_0_answer				= "$RT 0*16\0" ;
+const char*         pw_ok_answer			= "$PW OK*23\0" ;
+const char*         pw_0_answer				= "$PW 0*17\0" ;
+const char*         pw_mostrecent_answer	= "$PW \0" ;
+const char*         dt_ok_answer			= "$DT OK*34\0" ;
+const char*         dt_0_answer				= "$DT 0*00\0" ;
+const char*         gs_ok_answer			= "$GS OK*30\0" ;
+const char*         gs_0_answer				= "$GS 0*04\0" ;
+const char*         gj_ok_answer			= "$GJ OK*29\0" ;
+const char*         gj_0_answer				= "$GJ 0*1d\0" ;
+const char*         gn_ok_answer			= "$GN OK*2d\0" ;
+const char*         gn_0_answer				= "$GN 0*19\0" ;
+const char*         gn_mostrecent_answer	= "$GN \0" ;
+const char*			mt_del_all_answer		= "$MT \0" ; // nie wiadomo ile ich będzie dlatego nie mogę ustawić "$MT 0*09"
+const char*			td_ok_answer			= "$TD OK,\0" ;
+const char*         sl_ok_answer			= "$SL OK*3b\0" ;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -130,11 +133,11 @@ static void MX_USART1_UART_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM14_Init(void);
 /* USER CODE BEGIN PFP */
-void	send2swarm_at_command		( const char* at_command , const char* answer , uint16_t step ) ;
+void	send2swarm_at_command		( const char* , const char* , uint16_t ) ;
 void 	pw2payload () ; // parse answer with PW data and add to swarm_buff
 void 	gn2payload () ; // parse answer with GN data and add to swarm_buff
-uint8_t check_answer				( const char* s ) ;
-uint8_t nmea_checksum				( const char *sz , size_t len ) ;
+uint8_t check_answer				( const char* ) ;
+uint8_t nmea_checksum				( const char * , size_t ) ;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -176,7 +179,7 @@ int main(void)
   MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
-  HAL_Delay ( 10000 ) ; // Wait for Swarm boot // docelowo 120000
+  //HAL_Delay ( 10000 ) ; // Docelowo zostawić 12000s Wait for Swarm boot
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
 
   send2swarm_at_command ( cs_at_comm , cs_answer , 1 ) ;
@@ -212,16 +215,19 @@ int main(void)
   {
 	  if ( checklist == 13 )
 	  	  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 14 ) ;
+	  HAL_Delay ( 100 ) ;
 	  if ( checklist == 14 )
 		  send2swarm_at_command ( gn_mostrecent_at_comm , gn_mostrecent_answer , 15 ) ;
+	  HAL_Delay ( 100 ) ;
 	  if ( checklist == 15 )
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
+	  HAL_Delay ( 100 ) ;
 	  if ( checklist == 16 )
 	  {
-		  td_payload_buff[0] = 0 ;
-		  strcat ( td_payload_buff , pw_buff ) ;
-		  strcat ( td_payload_buff , gn_buff ) ;
-		  sprintf ( td_at_comm , "$TD HD=300,\"%s\"" , td_payload_buff ) ;
+		  //td_payload_buff[0] = 0 ;
+		  //strcat ( td_payload_buff , pw_buff ) ;
+		  //strcat ( td_payload_buff , gn_buff ) ;
+		  snprintf ( td_at_comm , TD_PAYLOAD_BUFF_SIZE , "$TD HD=300,\"%s;%s\"" , pw_buff , gn_buff ) ;
 	  	  send2swarm_at_command ( td_at_comm , td_ok_answer , 17 ) ;
 	  	  pw_buff[0] = 0 ;
 	  	  gn_buff[0] = 0 ;
@@ -497,69 +503,36 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint1
 {
 	uint32_t temp_tickstart = HAL_GetTick () ; //temp
 	uint8_t cs = nmea_checksum ( at_command , strlen ( at_command ) ) ;
-	char uart_tx_buff[150] ;
 
-	sprintf ( (char*) uart_tx_buff , "%s*%02x\n" , at_command , cs ) ;
-	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) uart_tx_buff ,  strlen ( (char*) uart_tx_buff ) , UART_TX_TIMEOUT ) ;
+	sprintf ( (char*) tx_buff , "%s*%02x\n" , at_command , cs ) ;
+	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
+	HAL_Delay ( 250 ) ;
 	waiting_for_answer = 1 ;
 	HAL_TIM_Base_Start_IT ( &htim14 ) ;
 	while ( waiting_for_answer )
-	{
 		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
 		{
 			checklist = step ;
 			break ;
 		}
-	}
-	if ( checklist == 14 )
+	if ( strncmp ( pw_mostrecent_at_comm , at_command , strlen ( pw_mostrecent_at_comm ) ) == 0 )
 		pw2payload () ;
-	if ( checklist == 15 )
+	if ( strncmp ( gn_mostrecent_at_comm , at_command , strlen ( gn_mostrecent_at_comm ) ) == 0 )
 		gn2payload () ;
 	rx_buff[0] = 0 ;
 	temp_tick = HAL_GetTick () - temp_tickstart ;
 }
 void pw2payload ()
 {
-	char comm[6] ;
-	if ( strlen ( (char *) rx_buff ) > 12 ) // 12 to odpowiednik $PW 3.30300
-	{
-		sscanf ( (const char *) rx_buff , "%[$A-Z] %4[0-9.]," , comm , pw_buff ) ;
-		pw_buff[4] = 59 ; // ";"
-		pw_buff[5] = 0 ; // ";"
-	}
+	chunk = strtok ( (char*) rx_buff , " " ) ;
+	chunk = strtok ( NULL , "," ) ;
+	sscanf ( (const char *) chunk , "%4s" , pw_buff ) ;
 }
 void gn2payload ()
 {
-	char e[2] = ";" ;
-	char comm[6] ;
-
-	if ( strncmp ( (const char *) rx_buff  , gn_mostrecent_answer , 4 ) == 0 )
-		if ( strlen ( (char *) rx_buff ) > 12 )
-		{
-			//sscanf ( (const char *) rx_buff , "%[$A-Z] %[0-9,.]*" , comm , gn_buff ) ;
-			sscanf ( (const char *) rx_buff , "%[$A-Z] %[0-9.,]*" , comm , gn_buff ) ;
-			strcat ( gn_buff , e ) ;
-		}
-	gn_buff[0] = 0 ;
-/*
-	uint8_t i = 4 ;
-	if ( strncmp ( (const char *) rx_buff  , gn_mostrecent_answer , 4 ) == 0 )
-		while ( rx_buff[i] != 42 )
-		{
-			if ( rx_buff[i] == 44 || rx_buff[i] == 46 || ( rx_buff[i] >= 48 && rx_buff[i] <= 57 ) )
-			{
-				gn_buff[i-4] = rx_buff[i] ;
-				i++ ;
-			}
-			else
-			{
-				i++;
-				break ;
-			}
-		}
-	gn_buff[i-4] = 59 ;
-	gn_buff[i-4+1] = 0 ;
-*/
+	chunk = strtok ( (char*) rx_buff , " " ) ;
+	chunk = strtok ( NULL , "*" ) ;
+	sprintf ( (char*) gn_buff , "%s" , chunk ) ;
 }
 uint8_t nmea_checksum ( const char *sz , size_t len )
 {
