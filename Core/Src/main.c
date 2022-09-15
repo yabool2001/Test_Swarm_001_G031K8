@@ -101,7 +101,8 @@ const char*			dt_mostrecent_at_comm	= "$DT @\0" ;
 const char*			mt_del_all_at_comm		= "$MT D=U\0" ;
 //const char 			td_mzo_at_comm[]		= "$TD HD=300,\"MZO\"" ; // to ładnie działało i przeszło przez satelitę
 const char*			sl_3ks_at_comm			= "$SL S=3000\0" ; // 50 minut spania dla Swarm
-const char*			sl_3c5ks_at_comm		= "$SL S=3500\0" ; // 50 minut spania dla Swarm
+const char*			sl_3c5ks_at_comm		= "$SL S=3500\0" ; // 50-2 minut spania dla Swarm
+const char*			sl_3c4ks_at_comm		= "$SL S=3400\0" ; // 60-3 minut spania dla Swarm
 //uint8_t				rt_unsolicited 			= 1 ;
 
 // SWARM AT Answers
@@ -179,9 +180,8 @@ int main(void)
   MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
-  //HAL_Delay ( 600000 ) ; // Nie potrzeba, bo tlyko by opozniało wszystko po shutdown
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
-
+  HAL_Delay ( 60000 ) ; // Na potrzeby Swarm Boot. Musi być!
   send2swarm_at_command ( cs_at_comm , cs_answer , 1 ) ;
   if ( checklist == 1 )
 	  send2swarm_at_command ( rt_0_at_comm , rt_ok_answer , 2 ) ;
@@ -207,6 +207,7 @@ int main(void)
 	  send2swarm_at_command ( gn_0_at_comm , gn_ok_answer , 12 ) ;
   if ( checklist == 12 )
 	  send2swarm_at_command ( gn_q_rate_at_comm , gn_0_answer , 13 ) ;
+  HAL_Delay ( 60000 ) ; // Na potrzeby Fix
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -221,7 +222,7 @@ int main(void)
 		  send2swarm_at_command ( mt_del_all_at_comm , mt_del_all_answer , 16 ) ;
 	  if ( checklist == 16 )
 	  {
-		  snprintf ( td_at_comm , TD_PAYLOAD_BUFF_SIZE , "$TD HD=300,\"%s;%s\"" , pw_buff , gn_buff ) ;
+		  snprintf ( td_at_comm , TD_PAYLOAD_BUFF_SIZE , "$TD HD=60,\"%s;%s\"" , pw_buff , gn_buff ) ;
 	  	  send2swarm_at_command ( td_at_comm , td_ok_answer , 17 ) ;
 	  	  pw_buff[0] = 0 ;
 	  	  gn_buff[0] = 0 ;
@@ -229,8 +230,8 @@ int main(void)
 	  if ( checklist == 17 )
 	  {
 		  //__NOP ();
-		  HAL_Delay ( 310000) ; // 5min. i 10 sekund obejmujące 5 minut na wysłanie wiadomości
-		  send2swarm_at_command ( sl_3ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
+		  HAL_Delay ( 60000) ; // 1min. na wysłanie wiadomości
+		  send2swarm_at_command ( sl_3c4ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
 	  }
 	  else
 	  {
@@ -239,7 +240,7 @@ int main(void)
 	  }
 	  checklist = 13 ;
 	  //HAL_Delay(3000); // docelowo zamienić na poniższy sleep
-	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode
+	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode. Docelowo rozważyć STOP Mode 2, żeby nie zaczynać zawsze od konfiguracji
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
