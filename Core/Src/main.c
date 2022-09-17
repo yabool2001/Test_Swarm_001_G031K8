@@ -63,15 +63,15 @@ Z
 RTC_HandleTypeDef hrtc;
 
 TIM_HandleTypeDef htim14;
+TIM_HandleTypeDef htim16;
 
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
 uint16_t			checklist				= 0 ; //docelowo każdy bit będzie odpowiedzialny za kolejny krok aplikacji
+uint8_t				tim16_on	 			= 0 ;
 uint8_t				waiting_for_answer		= 0 ;
-
-uint32_t temp_tick ;
 
 HAL_StatusTypeDef   uart_status ;
 uint8_t             rx_buff[RX_BUFF_SIZE] ;
@@ -103,7 +103,7 @@ const char*			mt_del_all_at_comm		= "$MT D=U\0" ;
 const char*			sl_3ks_at_comm			= "$SL S=3000\0" ; // 50 minut spania dla Swarm
 const char*			sl_3c5ks_at_comm		= "$SL S=3500\0" ; // 50-2 minut spania dla Swarm
 const char*			sl_3c4ks_at_comm		= "$SL S=3400\0" ; // 60-3 minut spania dla Swarm
-//uint8_t				rt_unsolicited 			= 1 ;
+const char*			sl_60s_at_comm			= "$SL S=60\0" ; // 60s spania dla Swarm
 
 // SWARM AT Answers
 const char*         cs_answer				= "$CS DI=0x\0" ;
@@ -133,6 +133,7 @@ static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM14_Init(void);
+static void MX_TIM16_Init(void);
 /* USER CODE BEGIN PFP */
 void	send2swarm_at_command		( const char* , const char* , uint16_t ) ;
 void 	pw2payload () ; // parse answer with PW data and add to swarm_buff
@@ -178,10 +179,12 @@ int main(void)
   MX_USART1_UART_Init();
   MX_RTC_Init();
   MX_TIM14_Init();
+  MX_TIM16_Init();
   /* USER CODE BEGIN 2 */
   __HAL_TIM_CLEAR_IT ( &htim14 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
+  __HAL_TIM_CLEAR_IT ( &htim16 , TIM_IT_UPDATE ) ; // żeby nie generować przerwania TIM6 od razu: https://stackoverflow.com/questions/71099885/why-hal-tim-periodelapsedcallback-gets-called-immediately-after-hal-tim-base-sta
   HAL_UARTEx_ReceiveToIdle_DMA ( &huart1 , rx_buff , sizeof ( rx_buff ) ) ;
-  HAL_Delay ( 60000 ) ; // Na potrzeby Swarm Boot. Musi być!
+
   send2swarm_at_command ( cs_at_comm , cs_answer , 1 ) ;
   if ( checklist == 1 )
 	  send2swarm_at_command ( rt_0_at_comm , rt_ok_answer , 2 ) ;
@@ -207,13 +210,18 @@ int main(void)
 	  send2swarm_at_command ( gn_0_at_comm , gn_ok_answer , 12 ) ;
   if ( checklist == 12 )
 	  send2swarm_at_command ( gn_q_rate_at_comm , gn_0_answer , 13 ) ;
-  HAL_Delay ( 60000 ) ; // Na potrzeby Fix
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* 60s TIM16 Timer for Swarm Fix */
+	  tim16_on = 1 ;
+	  HAL_TIM_Base_Start_IT ( &htim16 ) ;
+	  while ( tim16_on )
+		  __NOP () ;
+
 	  if ( checklist == 13 )
 	  	  send2swarm_at_command ( pw_mostrecent_at_comm , pw_mostrecent_answer , 14 ) ;
 	  if ( checklist == 14 )
@@ -229,18 +237,28 @@ int main(void)
 	  }
 	  if ( checklist == 17 )
 	  {
-		  //__NOP ();
-		  HAL_Delay ( 60000) ; // 1min. na wysłanie wiadomości
-		  send2swarm_at_command ( sl_3c4ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
+		  /* 60s TIM16 Timer for Swarm TD */
+		  tim16_on = 1 ;
+		  HAL_TIM_Base_Start_IT ( &htim16 ) ;
+		  while ( tim16_on )
+			  __NOP () ;
+
+		  //send2swarm_at_command ( sl_3c4ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
 	  }
 	  else
-	  {
-		  //__NOP () ;
-		  send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
-	  }
+		  __NOP();
+		  //send2swarm_at_command ( sl_3c5ks_at_comm , sl_ok_answer , 18 ) ; // Swarm sleep for 50 minutes
+	  send2swarm_at_command ( sl_60s_at_comm , sl_ok_answer , 18 ) ; // TEST Swarm sleep for 1 minutes
+
 	  checklist = 13 ;
-	  //HAL_Delay(3000); // docelowo zamienić na poniższy sleep
-	  HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode. Docelowo rozważyć STOP Mode 2, żeby nie zaczynać zawsze od konfiguracji
+
+	  /* 60s TIM16 Timer docelowo zamienić na poniższy shutdown/stop/sleep */
+	  tim16_on = 1 ;
+	  HAL_TIM_Base_Start_IT ( &htim16 ) ;
+	  while ( tim16_on )
+		  __NOP () ;
+
+	  //HAL_PWREx_EnterSHUTDOWNMode () ; // Enter the SHUTDOWN mode. Docelowo rozważyć STOP Mode 2, żeby nie zaczynać zawsze od konfiguracji
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -357,7 +375,7 @@ static void MX_RTC_Init(void)
 
   /** Enable the WakeUp
   */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 3600, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 120, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
   {
     Error_Handler();
   }
@@ -395,6 +413,38 @@ static void MX_TIM14_Init(void)
   /* USER CODE BEGIN TIM14_Init 2 */
 
   /* USER CODE END TIM14_Init 2 */
+
+}
+
+/**
+  * @brief TIM16 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM16_Init(void)
+{
+
+  /* USER CODE BEGIN TIM16_Init 0 */
+
+  /* USER CODE END TIM16_Init 0 */
+
+  /* USER CODE BEGIN TIM16_Init 1 */
+
+  /* USER CODE END TIM16_Init 1 */
+  htim16.Instance = TIM16;
+  htim16.Init.Prescaler = 16000-1;
+  htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim16.Init.Period = 60000-1;
+  htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim16.Init.RepetitionCounter = 0;
+  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim16) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM16_Init 2 */
+
+  /* USER CODE END TIM16_Init 2 */
 
 }
 
@@ -496,27 +546,26 @@ void HAL_UARTEx_RxEventCallback ( UART_HandleTypeDef *huart , uint16_t Size )
 
 void send2swarm_at_command ( const char* at_command , const char* answer , uint16_t step )
 {
-	uint32_t temp_tickstart = HAL_GetTick () ; //temp
+	//uint32_t temp_tickstart = HAL_GetTick () ; //temp
 	uint8_t cs = nmea_checksum ( at_command , strlen ( at_command ) ) ;
 
 	sprintf ( (char*) tx_buff , "%s*%02x\n" , at_command , cs ) ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
-	if ( checklist >= 13 )
-		HAL_Delay ( 500 ) ;
 	waiting_for_answer = 1 ;
 	HAL_TIM_Base_Start_IT ( &htim14 ) ;
 	while ( waiting_for_answer )
 		if ( strncmp ( (char*) rx_buff , answer , strlen ( answer ) ) == 0 )
 		{
-			checklist = step ;
+			//checklist = step ;
 			break ;
 		}
+	checklist = step ;
 	if ( strncmp ( pw_mostrecent_at_comm , at_command , strlen ( pw_mostrecent_at_comm ) ) == 0 )
 		pw2payload () ;
 	if ( strncmp ( gn_mostrecent_at_comm , at_command , strlen ( gn_mostrecent_at_comm ) ) == 0 )
 		gn2payload () ;
 	rx_buff[0] = 0 ;
-	temp_tick = HAL_GetTick () - temp_tickstart ;
+	//temp_tick = HAL_GetTick () - temp_tickstart ;
 }
 void pw2payload ()
 {
@@ -546,6 +595,11 @@ void HAL_TIM_PeriodElapsedCallback ( TIM_HandleTypeDef *htim )
 	{
 		waiting_for_answer = 0 ;
 		HAL_TIM_Base_Stop_IT ( &htim14 ) ;
+	}
+	if ( htim->Instance == TIM16 )
+	{
+		tim16_on = 0 ;
+		HAL_TIM_Base_Stop_IT ( &htim16 ) ;
 	}
 }
 
