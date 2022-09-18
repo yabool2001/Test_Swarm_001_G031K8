@@ -8,8 +8,8 @@
 ../Core/Src/main.c:520:13:MX_GPIO_Init	48	static
 ../Core/Src/main.c:541:6:HAL_UARTEx_RxEventCallback	16	static
 ../Core/Src/main.c:547:6:send2swarm_at_command	40	static
-../Core/Src/main.c:570:6:pw2payload	8	static
-../Core/Src/main.c:576:6:gn2payload	8	static
-../Core/Src/main.c:582:9:nmea_checksum	24	static
-../Core/Src/main.c:592:6:HAL_TIM_PeriodElapsedCallback	16	static
-../Core/Src/main.c:612:6:Error_Handler	8	static,ignoring_inline_asm
+../Core/Src/main.c:571:6:pw2payload	8	static
+../Core/Src/main.c:577:6:gn2payload	8	static
+../Core/Src/main.c:583:9:nmea_checksum	24	static
+../Core/Src/main.c:593:6:HAL_TIM_PeriodElapsedCallback	16	static
+../Core/Src/main.c:613:6:Error_Handler	8	static,ignoring_inline_asm

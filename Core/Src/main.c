@@ -551,6 +551,7 @@ void send2swarm_at_command ( const char* at_command , const char* answer , uint1
 
 	sprintf ( (char*) tx_buff , "%s*%02x\n" , at_command , cs ) ;
 	uart_status = HAL_UART_Transmit ( &huart1 , (const uint8_t *) tx_buff ,  strlen ( (char*) tx_buff ) , UART_TX_TIMEOUT ) ;
+	tx_buff[0] = 0 ;
 	waiting_for_answer = 1 ;
 	HAL_TIM_Base_Start_IT ( &htim14 ) ;
 	while ( waiting_for_answer )
